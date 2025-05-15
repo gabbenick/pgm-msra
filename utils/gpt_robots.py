@@ -1,73 +1,125 @@
 import time
-from openai import OpenAI
+from openai import OpenAI # Apenas para type hinting, o client será passado
 
-client = OpenAI(
-    api_key="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",
-    default_headers={"OpenAI-Beta": "assistants=v2"}
-)
+# REMOVA a inicialização global do client daqui:
+# client = OpenAI(
+#     api_key="sk-proj-...", # <--- REMOVA ISTO
+#     default_headers={"OpenAI-Beta": "assistants=v2"}
+# )
 
-def create_and_run_assistant(role, prompts, model="gpt-4-1106-preview", **kwargs):
+def create_and_run_assistant(
+    client: OpenAI, # O client agora é um argumento
+    assistant_name: str,
+    assistant_instructions: str, # As instruções específicas virão como argumento
+    thread_prompts: list, # Lista de dicts: [{"role": "user", "content": "..."}]
+    model: str = "gpt-4-1106-preview", # Default model, pode ser sobrescrito
+    timeout_seconds: int = 180,
+    poll_interval_seconds: int = 2
+) -> str:
+    """
+    Cria um assistente, cria uma thread, envia mensagens, executa o run,
+    aguarda a conclusão, recupera a resposta e limpa os recursos.
 
-    role_instructions = {
-        "Thinker": """You are a thinker. I need you to help me think about some problems.
-        You need to provide me the answer based on the format of the example.""",
-        "Judge": """You're a judge. I need you to make judgments on some statements.""",
-        "Executor": """You're an executor. I need you to calculate the final result based on some conditions and steps.
-        You need to provide me the answer based on the format of the examples."""
-    }
+    Args:
+        client: Instância do cliente OpenAI.
+        assistant_name: Nome para o assistente (para logging/debug).
+        assistant_instructions: As instruções específicas para o assistente.
+        thread_prompts: Uma lista de prompts a serem adicionados à thread.
+        model: O modelo a ser usado para o assistente.
+        timeout_seconds: Tempo máximo para aguardar a conclusão do run.
+        poll_interval_seconds: Intervalo para checar o status do run.
 
-    assistant = client.beta.assistants.create(
-    model=model,
-    instructions=role_instructions.get(role, ""),
-    name=role,
-    tools=[{"type": "code_interpreter"}],
-    )
+    Returns:
+        A string de texto da última mensagem do assistente, ou uma mensagem de erro.
+    """
+    assistant = None
+    thread = None
+    run_id = None
+    start_time = time.time()
 
-
-    thread = client.beta.threads.create()
-
-    for prompt in prompts:
-        client.beta.threads.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content=prompt["content"],
+    try:
+        # As role_instructions genéricas não são mais necessárias aqui.
+        # As instruções específicas são passadas via assistant_instructions.
+        assistant = client.beta.assistants.create(
+            model=model,
+            instructions=assistant_instructions, # Usa as instruções passadas
+            name=assistant_name,
+            tools=[{"type": "code_interpreter"}],
         )
 
-    run = client.beta.threads.runs.create(
-        thread_id=thread.id,
-        assistant_id=assistant.id,
-    )
+        thread = client.beta.threads.create()
 
-    while run.status in ["queued", "in_progress"]:
-        run = client.beta.threads.runs.retrieve(
+        for prompt_item in thread_prompts: # Renomeado para prompt_item
+            client.beta.threads.messages.create(
+                thread_id=thread.id,
+                role=prompt_item.get("role", "user"),
+                content=prompt_item.get("content", ""),
+            )
+
+        run = client.beta.threads.runs.create(
             thread_id=thread.id,
-            run_id=run.id
+            assistant_id=assistant.id,
         )
+        run_id = run.id
 
-    if run.status == "completed":
-        all_messages = client.beta.threads.messages.list(thread_id=thread.id)
-        try:
-            for message in all_messages.data:
-                if message.role == "assistant":
-                    response = message.content[0].text.value
-                    break
-            else:
-                response = "No assistant message found."
-        except Exception as e:
-            print(f"An error occurred while parsing assistant response: {e}")
-            response = "I need to rethink this problem."
-    else:
-        print(f"Run status: {run.status}")
-        response = f"Run failed with status: {run.status}"
-    print(run)
-    return response
+        while run.status in ["queued", "in_progress", "requires_action"]:
+            if time.time() - start_time > timeout_seconds:
+                try:
+                    client.beta.threads.runs.cancel(thread_id=thread.id, run_id=run.id)
+                except Exception as cancel_err:
+                    print(f"Erro ao tentar cancelar run {run.id} por timeout: {cancel_err}")
+                return f"Erro: Timeout ({timeout_seconds}s) para o assistente '{assistant_name}' (Run ID: {run_id})."
 
+            time.sleep(poll_interval_seconds)
+            run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
 
-def generate_from_thinker(prompts, **kwargs):
-    return create_and_run_assistant("Thinker", prompts, **kwargs)
+            if run.status == "requires_action":
+                tool_calls = run.required_action.submit_tool_outputs.tool_calls if run.required_action and run.required_action.type == "submit_tool_outputs" else None
+                print(f"Run {run.id} para '{assistant_name}' requer ação. Tipo: {run.required_action.type if run.required_action else 'N/A'}. Tool calls: {tool_calls}")
+                # Para este projeto, não esperamos ter que submeter tool_outputs manualmente.
+                # Se o run ficar preso aqui, é um problema.
 
-def generate_from_judge(prompts, **kwargs):
-    return create_and_run_assistant("Judge", prompts, **kwargs)
+        if run.status == "completed":
+            messages = client.beta.threads.messages.list(thread_id=thread.id, order="desc")
+            for message in messages.data:
+                if message.run_id == run.id and message.role == "assistant":
+                    if message.content and len(message.content) > 0:
+                        content_block = message.content[0]
+                        if content_block.type == 'text':
+                            return content_block.text.value
+                        else:
+                            return f"Erro: Assistente '{assistant_name}' retornou conteúdo não textual ({content_block.type})."
+                    else:
+                        return f"Erro: Assistente '{assistant_name}' enviou uma mensagem vazia."
+            return f"Erro: Nenhuma mensagem do assistente '{assistant_name}' encontrada para o run {run.id}."
+        else:
+            error_detail = f" Detalhe: {run.last_error.code} - {run.last_error.message}" if run.last_error else ""
+            return f"Erro: Run {run.id} para '{assistant_name}' finalizou com status '{run.status}'.{error_detail}"
 
-def generate_from_excutor(prompts, **kwargs):
-    return create_and_run_assistant("Executor", prompts, **kwargs)
+    except Exception as e:
+        print(f"Exceção crítica ao executar o assistente '{assistant_name}' (Run ID: {run_id}): {type(e).__name__} - {e}")
+        return f"Exceção crítica ao executar assistente '{assistant_name}': {str(e)}"
+    finally:
+        if assistant:
+            try:
+                client.beta.assistants.delete(assistant.id)
+            except Exception as e_del_ass:
+                print(f"Erro ao deletar assistente {assistant.id} ('{assistant_name}'): {e_del_ass}")
+        if thread:
+            try:
+                client.beta.threads.delete(thread.id)
+            except Exception as e_del_thr:
+                print(f"Erro ao deletar thread {thread.id} para '{assistant_name}': {e_del_thr}")
+
+# REMOVA as funções generate_from_thinker, generate_from_judge, generate_from_excutor daqui.
+# Elas serão implementadas nos arquivos macm/thinker.py, macm/judge.py, macm/executor.py,
+# e chamarão a função create_and_run_assistant acima.
+
+# def generate_from_thinker(prompts, **kwargs): # <--- REMOVA
+#     return create_and_run_assistant("Thinker", prompts, **kwargs)
+
+# def generate_from_judge(prompts, **kwargs): # <--- REMOVA
+#     return create_and_run_assistant("Judge", prompts, **kwargs)
+
+# def generate_from_excutor(prompts, **kwargs): # <--- REMOVA
+#     return create_and_run_assistant("Executor", prompts, **kwargs)

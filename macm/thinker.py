@@ -1,109 +1,63 @@
-import re
-from utils.gpt_robots import generate_from_thinker
-from prompt.prompts import *
+from openai import OpenAI # Para type hinting, se você usa
+from utils.gpt_robots import create_and_run_assistant # Certifique-se que este é o caminho correto
+from prompt.prompts import THINKER_INSTRUCTIONS_CARREIRA # Importa a instrução correta
 
-def Analysis_conditions(question, gpt_config):
-    '''
-    ask GPT to determine the conditions and objectives of a question.
-    Input:
-    Origianl questions (Str)
-    Output:
-    conditions and objectives (List, List)
-    '''
-    messages = []
-    message = {
-        "role": "user",
-        "content": Analysis_conditions_objective.format(Question = question)
-    }
-    messages.append(message)
-    # answer = generate_from_GPT(messages, max_tokens = 256, model="gpt-4-1106-preview", temperature=0.7, n=1)[0]["message"]["content"]
-    answer = generate_from_thinker(messages, **gpt_config)
-    parts = answer.split("Objective:")
-    conditions_text = parts[0].replace("Conditions:", "").strip()
-    conditions = re.findall(r'\d\.\s*(.*)', conditions_text)
-    conditions = [condition.strip() for condition in conditions]
-    objectives_text = parts[1].strip()
-    if re.search(r'\d\.\s+', objectives_text):
-        # Extract objectives with numbers
-        objectives = re.findall(r'\d\.\s*(.*)', objectives_text)
-    else:
-        # Split objectives by newline for unnumbered items
-        objectives = objectives_text.split('\n')
-    objectives = [objective.strip() for objective in objectives]
-    return conditions,objectives
+# A gpt_config pode ser útil para passar o modelo, temperatura, etc.
+# Se você não estiver usando gpt_config para esses parâmetros específicos para o Thinker,
+# pode remover e usar os defaults de create_and_run_assistant ou passar explicitamente.
+def extract_career_progression_data(
+    client: OpenAI, # Adicionando o client como argumento
+    user_query_content: str,
+    data_atual_str: str,
+    gpt_config: dict = None # Opcional, para configurações como modelo, temperatura
+) -> str:
+    """
+    Chama o assistente Pensador (configurado com THINKER_INSTRUCTIONS_CARREIRA)
+    para extrair dados estruturados (data_admissao, ref_inicial, titulos, data_limite)
+    da consulta do usuário sobre progressão de carreira.
 
+    Args:
+        client: Instância do cliente OpenAI.
+        user_query_content: A consulta do usuário em texto.
+        data_atual_str: A data atual formatada como string ("dd/mm/yyyy") para referência
+                        se o usuário mencionar "até hoje".
+        gpt_config: Dicionário opcional com configurações para a chamada do LLM (ex: model).
 
-def Fix_conditions(question,Initial_conditions, gpt_config):
-    '''
-    ask GPT to fix the wrong initial condition of a question.
-    Input:
-    question and initial condition (Str, Str)
-    Output:
-    fixed condition (Str)
-    '''
-    messages = []
-    message = {
-        "role": "user",
-        "content": Fix_conditions_prompt.format(question = question,Initial_conditions = Initial_conditions)
-    }
-    messages.append(message)
-    # answer = generate_from_GPT(messages, max_tokens = 256, model="gpt-4-1106-preview", temperature=0.7, n=1)[0]["message"]["content"]
-    fixed_condition = generate_from_thinker(messages, **gpt_config)
+    Returns:
+        Uma string JSON contendo os dados extraídos ou uma string JSON de erro.
+    """
+    if gpt_config is None:
+        gpt_config = {}
 
-    return fixed_condition
+    # O prompt para o Pensador deve incluir a data atual para o caso de "até hoje"
+    # e a consulta original do usuário.
+    thread_prompts = [
+        {
+            "role": "user",
+            "content": (
+                f"Analise esta consulta do usuário sobre progressão de carreira: '{user_query_content}'. "
+                f"Data atual para referência (se 'até hoje' for mencionado pelo usuário): {data_atual_str}."
+            )
+        }
+    ]
 
+    # Certifique-se que `create_and_run_assistant` aceita `client` como primeiro argumento
+    # e que `gpt_config` é desempacotado corretamente como **kwargs.
+    # Se `gpt_config` contém 'model', ele será usado. Caso contrário, o default de `create_and_run_assistant`.
+    json_response_str = create_and_run_assistant(
+        client=client,
+        assistant_name="PensadorCarreira", # Nome descritivo para o assistente
+        assistant_instructions=THINKER_INSTRUCTIONS_CARREIRA,
+        thread_prompts=thread_prompts,
+        **gpt_config  # Passa configurações como model, temperature, etc.
+    )
 
-def Think_thoughts(conditions,objectives, gpt_config):
-    '''
-    Ask GPT to think about other condtions.
-    Input: 
-    conditions and objective return from Analysis_conditions (List, List)
-    Output:
-    new conditions (List)
-    '''
-    messages = []
-    numbered_conditions = "\n".join(f"{i + 1}. {condition}" for i, condition in enumerate(conditions))
-    numbered_objective = "\n".join(f"{i + 1}. {objective}" for i, objective in enumerate(objectives))
-    message = {
-        "role": "user",
-        "content": Discover_new_conditions.format(Known_conditions = numbered_conditions,Objective = numbered_objective)
-    }
-    messages.append(message)
-    message = {
-        "role": "user",
-        "content": Summarize_Answer
-    }
-    messages.append(message)
-    # new_condition = generate_from_GPT(messages, max_tokens = 128, model="gpt-4-1106-preview", temperature=0.7, n=1)[0]["message"]["content"]
-    new_condition = generate_from_thinker(messages, **gpt_config)
-    if new_condition:
-        condition = [new_condition.strip()] # Single condition situation
-        # pattern = r"Based on .+? we can get: .+? Reason: .+?\." # Multiple conditions situation
-        # condition = re.findall(pattern, new_condition, re.DOTALL)
+    return json_response_str
 
-    else: # Avoid the run status fail situation
-        new_condition = "I need to rethink it"
-        condition = [new_condition.strip()]
-    return condition
-
-
-def Think_Steps(condition_from_thinker,objective_from_thinker, gpt_config):
-    '''
-    ask GPT to think about other condtions.
-    Input: 
-    conditions and objective return from Think_thoughts (List, List)
-    Output:
-    Steps for solving the problem (Str)
-    '''
-    messages = []
-    numbered_conditions = "\n".join(f"{i + 1}. {condition}" for i, condition in enumerate(condition_from_thinker))
-    numbered_objective = "\n".join(f"{i + 1}. {objective}" for i, objective in enumerate(objective_from_thinker))
-    message = {
-        "role": "user",
-        "content": Determine_Steps.format(Known_conditions = numbered_conditions,Objective = numbered_objective)
-    }
-    messages.append(message)
-    # steps = generate_from_GPT(messages, max_tokens = 256, model="gpt-4-1106-preview", temperature=0.7, n=1)[0]["message"]["content"]
-    steps = generate_from_thinker(messages, **gpt_config)
-
-    return steps
+# As funções Analysis_conditions, Fix_conditions, Think_thoughts, Think_Steps
+# do seu thinker.py original não são necessárias para este fluxo simplificado
+# de progressão de carreira. Você pode comentá-las ou removê-las deste arquivo
+# se ele for dedicado apenas ao "Pensador" da progressão de carreira.
+# Se você planeja usar este thinker.py para outros problemas que seguem
+# aquele framework mais complexo, então você precisaria de uma lógica para
+# decidir qual tipo de "pensamento" aplicar. Mas para agora, vamos focar.

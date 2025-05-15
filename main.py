@@ -1,145 +1,141 @@
 import os
-import re
 import json
-import random
-from prompt.prompts import *
-from collections import Counter
-from macm.executor import Execute_steps
-from macm.judge import Judge_statement, Judge_answer, Judge_condition
-from macm.thinker import Analysis_conditions, Think_thoughts, Think_Steps
+from datetime import datetime
+from dotenv import load_dotenv # Para carregar variáveis de ambiente (API Key)
+from openai import OpenAI
 
-GPT_CONFIG = {
-    "model": "gpt-4-1106-preview",
-    "temperature": 0.7,
-    "n": 1,
-    "max_tokens": 256
-}
+# Importe as funções refatoradas dos seus módulos MACM
+from macm.thinker import extract_career_progression_data
+from macm.executor import calculate_career_progression # Ou o nome com typo se você manteve
+from macm.judge import explain_career_progression_results
 
-def check_condition(question, condition, n):
-    for _ in range(n):
-        if Judge_condition(question, condition).strip() == "False":
-            return False
-    return True
+# Função auxiliar para limpar strings JSON (pode ir para utils se preferir)
+def clean_json_string(json_str: str) -> str:
+    """Tenta limpar uma string JSON que pode estar encapsulada em markdown."""
+    s = json_str.strip()
+    if s.startswith("```json"):
+        s = s[7:] # remove ```json
+        if s.endswith("```"):
+            s = s[:-3] # remove ```
+        return s.strip()
+    if s.startswith("```"): # Caso mais simples de apenas ```
+        s = s[3:]
+        if s.endswith("```"):
+            s = s[:-3]
+        return s.strip()
+    return s # Retorna original se não encontrar markdown
 
-def check_statement(conditions, statement, n):
-    for _ in range(n):
-        answer = Judge_statement(conditions, statement)
-        if "False" in answer or "false" in answer:
-            return False
-    return True
 
-def check_answer(conditions, statement):
-    if_got_answer = Judge_answer(conditions, statement)
-    if "False" in if_got_answer or "false" in if_got_answer:
-        return False
-    return True
+def run_career_progression_pipeline(user_query_pt: str):
+    """
+    Orquestra o pipeline completo para processar uma consulta de progressão de carreira.
+    """
+    load_dotenv() # Carrega variáveis do arquivo .env
+    api_key = os.getenv("OPENAI_API_KEY")
 
-def check_if_got_answer(conditions, statement, n):
-    for _ in range(n):
-        if not check_answer(conditions, statement):
-            return False
-    return True    
+    if not api_key:
+        print("Erro: A variável de ambiente OPENAI_API_KEY não foi definida.")
+        print("Por favor, crie um arquivo .env na raiz do projeto com sua chave: OPENAI_API_KEY='sk-...'")
+        return "Erro de configuração: Chave da API não encontrada."
 
-def main(question, times, n, min_voters, max_voters):
-    possible_answers = []
     try:
-        voter_count = 0
-        tie = True
-        
-        while tie or voter_count < min_voters:
-            voter_count += 1
-            print(f"\n# {voter_count} Thinker is analyzing the question...")
-            conditions, objectives = Analysis_conditions(question, GPT_CONFIG)
-            Initial_condition_numbers = len(conditions)
-            
-            for time in range(times):
-                print(f"\n# {voter_count} Thinker is thinking new thoughts...")
-                unchecked_conditions = Think_thoughts(conditions, objectives, GPT_CONFIG)
-                checked_conditions = []
-                for unchecked_condition in unchecked_conditions:
-                    print(f"\n# {voter_count} Judge is checking conditions...")
-                    if check_statement(conditions, unchecked_condition, n):
-                        start = unchecked_condition.find("we can get: ")
-                        if start != -1:
-                            unchecked_condition = unchecked_condition[start + len("we can get: "):]
-                            unchecked_condition = unchecked_condition.split("Reason:")[0]
-                        checked_conditions.append(unchecked_condition)
-                conditions = conditions + checked_conditions
-                if check_if_got_answer(conditions, objectives, 1):
-                    break
-            
-            print(f"\n# {voter_count} thinker is thinking steps...")
-            steps = Think_Steps(conditions, objectives, GPT_CONFIG)
-            
-            print(f"\n# {voter_count} Executor is trying to calculate the answer...")
-            final_answer = Execute_steps(conditions, objectives, steps)
-
-            # Debug opcional
-            print(f"\n[DEBUG] Raw final_answer:\n{final_answer}")
-            with open("debug_output.txt", "w", encoding="utf-8") as f:
-                f.write(final_answer)
-
-            # Captura expressão algébrica (opcional)
-            expr_match = re.search(r'Expression:\s*(.*)', final_answer)
-            value_match = re.search(r'Value:\s*([-+]?\d*\.?\d+)', final_answer)
-
-            expression = expr_match.group(1).strip() if expr_match else "Not found"
-            value = value_match.group(1) if value_match else "No match found"
-
-            print(f"\n[DEBUG] Extracted Expression: {expression}")
-            print(f"[DEBUG] Extracted Value: {value}")
-
-            possible_answers.append(value)
-            
-            if voter_count >= min_voters:
-                counter = Counter(possible_answers)
-                most_votes = counter.most_common(1)[0][1]  
-                tie_count = len([x for x in counter.items() if x[1] == most_votes])
-                
-                tie = tie_count > 1
-                if tie:
-                    print("\nThere is a tie vote. We need to add another voter.")
-                if voter_count >= max_voters:
-                    print("\nReached maximum voter limit.")
-                    break
-
-        most_possible_answer, count = counter.most_common(1)[0]
-        print(f"\nThe final answer is {most_possible_answer}")
-        return most_possible_answer
-
+        client = OpenAI(api_key=api_key, default_headers={"OpenAI-Beta": "assistants=v2"})
+        client.models.list() # Teste rápido para verificar se a chave e conexão são válidas
+        print("Cliente OpenAI inicializado com sucesso.")
     except Exception as e:
-        print(f"Error processing file: {e}")
+        print(f"Falha ao inicializar o cliente OpenAI: {e}")
+        return f"Erro de inicialização do cliente OpenAI: {e}"
 
-def evaluate_dataset(folder_path, times, n, limit=5):
-    all_files = []
-    for root, dirs, files in os.walk(folder_path):
-        for file in files:
-            if file.endswith('.json'):
-                all_files.append(os.path.join(root, file))
+    # Data atual para referência, caso o usuário diga "até hoje"
+    formato_data_padrao = "%d/%m/%Y"
+    data_atual_str = datetime.now().strftime(formato_data_padrao)
+    
+    final_explanation = "Desculpe, ocorreu um problema e não foi possível processar sua solicitação no momento."
 
-    random.shuffle(all_files)
+    print(f"\n--- Consulta do Usuário (PT) ---\n{user_query_pt}\n")
 
-    for count, file_path in enumerate(all_files[:limit]):
-        with open(file_path, 'r') as json_file:
-            try:
-                data = json.load(json_file)
-                problem = data.get("problem")
-                if problem:
-                    print(f"#{count} Problem:\n", problem)
-                    solution = data.get("solution")
-                    print(f"#{count} Solution\n", solution)
-                    main(problem, times, n)
-            except json.JSONDecodeError:
-                print(f"Error reading file {file_path}")
-            except Exception as e:
-                print(f"Error processing file {file_path}: {e}")
+    # --- Fase 1: Pensador (Thinker) ---
+    print("--- Fase 1: Pensador ---")
+    # Configurações para o LLM do Pensador (opcional, pode usar defaults de create_and_run_assistant)
+    gpt_config_thinker = {"model": "gpt-3.5-turbo-1106"} # Modelo mais rápido e barato para extração
+    
+    extracted_data_json_str = extract_career_progression_data(
+        client=client,
+        user_query_content=user_query_pt,
+        data_atual_str=data_atual_str,
+        gpt_config=gpt_config_thinker
+    )
+    print(f"Pensador retornou (string bruta):\n{extracted_data_json_str}\n")
+    
+    extracted_data_json_str = clean_json_string(extracted_data_json_str)
+    print(f"Pensador retornou (após limpeza):\n{extracted_data_json_str}\n")
+    extracted_data = None
+    try:
+        extracted_data = json.loads(extracted_data_json_str)
+        if "erro" in extracted_data and extracted_data["erro"]:
+            error_message = f"Erro na análise da sua solicitação: {extracted_data['erro']}. Por favor, tente reformular sua pergunta."
+            print(error_message)
+            # Poderia chamar o Juiz para formatar este erro também, se desejado
+            return error_message # Retorna o erro diretamente
+    except json.JSONDecodeError as e:
+        error_message = f"Houve um problema técnico ao processar sua solicitação (formato inválido da análise inicial). Detalhe: {e}. String recebida: '{extracted_data_json_str}'"
+        print(error_message)
+        return error_message
+    except Exception as e: # Outros erros inesperados
+        error_message = f"Ocorreu um erro técnico inesperado após a fase de análise inicial. Detalhe: {e}"
+        print(error_message)
+        return error_message
+
+    if not extracted_data: # Se extracted_data for None devido a um erro não capturado acima
+        return "Falha na extração de dados pelo Pensador."
+
+    # --- Fase 2: Executor ---
+    print("--- Fase 2: Executor ---")
+    # Configurações para o LLM do Executor (modelo mais capaz é crucial aqui)
+    gpt_config_executor = {"model": "gpt-4-turbo-preview"} # Fortemente recomendado
+    
+    progression_timeline_json_str = calculate_career_progression(
+        client=client,
+        extracted_server_data=extracted_data, # Passa o dict Python parseado
+        gpt_config=gpt_config_executor
+    )
+    print(f"Executor retornou (string bruta):\n{progression_timeline_json_str}\n")
+
+    progression_timeline_json_str = clean_json_string(progression_timeline_json_str)
+    print(f"Executor retornou (após limpeza):\n{progression_timeline_json_str}\n")
+    # O Juiz receberá esta string e tentará interpretá-la (seja JSON válido ou texto de erro)
+
+    # --- Fase 3: Juiz (Judge) ---
+    print("--- Fase 3: Juiz ---")
+    gpt_config_judge = {"model": "gpt-4-turbo-preview"} # Pode ser gpt-3.5 para economizar, mas gpt-4 pode dar explicações melhores
+    
+    final_explanation = explain_career_progression_results(
+        client=client,
+        progression_timeline_json_str=progression_timeline_json_str,
+        original_user_query=user_query_pt,
+        gpt_config=gpt_config_judge
+    )
+    print("--- Explicação Final do Juiz (PT) ---")
+    print(final_explanation)
+    
+    return final_explanation
+
 
 if __name__ == "__main__":
-    n = 1
-    times = 2
-    min_voters = 1
-    max_voters = 1
-    question = "Please do not immediately give the final answer.\n\nFirst, write a symbolic algebraic expression based on the following:\n\nAn employee has a base salary SB = 2000. They have 10 years of service, and their salary increases by 5% every 5 years. They also receive:\n- 10% qualification bonus (applied to the updated SB),\n- R$500 fixed bonus,\n- 10 overtime hours, calculated as: (SB / 220) × hours × 1.5.\n\nStep 1: Write the complete symbolic expression.\nStep 2: Plug in the values and simplify the final result.\n\nReturn **both** in the format:\n\nExpression: ...\nValue: ..."
+    # Exemplo de prompt do usuário para progressão de carreira
+    # (Baseado na imagem que você compartilhou anteriormente, mas usando a lógica de regras que definimos)
+    user_prompt_carreira = """
+    Fui admitido em 20 de agosto de 2008, com a referência inicial NE41A01.
+    Ao longo da minha carreira, obtive os seguintes títulos e requeri as progressões nas datas indicadas:
+    - Título de Nível Médio: requerido em 25 de outubro de 2013.
+    - Título de Nível Superior: requerido em 04 de janeiro de 2017.
+    - Título de Especialização: requerido em 22 de setembro de 2022.
+    Gostaria de ver minha progressão completa até 31 de dezembro de 2023.
+    """
+    run_career_progression_pipeline(user_prompt_carreira)
 
-    
-    main(question, times, n, min_voters, max_voters)
+    print("\n" + "="*70 + "\n")
+
+    # Exemplo mais simples para teste rápido
+    user_prompt_simples = "Minha admissao foi em 01/01/2022 como NE20A01. Quero saber minha progressao ate hoje."
+    # run_career_progression_pipeline(user_prompt_simples)

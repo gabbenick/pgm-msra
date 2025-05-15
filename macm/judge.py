@@ -1,74 +1,60 @@
-from utils.gpt_robots import generate_from_judge
-from utils.gpt import Judge_if_got_Answer_from_GPT
-from prompt.prompts import *
+from openai import OpenAI # Para type hinting, se você usa
+from utils.gpt_robots import create_and_run_assistant # Certifique-se que este é o caminho correto
+from prompt.prompts import JUDGE_INSTRUCTIONS_CARREIRA # Importa a instrução correta
 
-def Judge_condition(question,condition):
-    '''
-    ask GPT to Judge the thoughts from the thinker
-    Input:
-    Known_condtions, Condition from the thinker (List, Str)
-    Output:
-    True/False (Str)
-    '''
-    messages = []
-    message = {
-        "role": "user",
-        "content": Judge_condtion.format(question = question,Initial_conditions = condition)
-    }
-    messages.append(message)
-    T_or_F = generate_from_judge(messages, max_tokens = 4, model="gpt-4-1106-preview", temperature=0.7, n=1)
-    return T_or_F
+# A gpt_config pode ser útil para passar o modelo, temperatura, etc.
+def explain_career_progression_results(
+    client: OpenAI, # Adicionando o client como argumento
+    progression_timeline_json_str: str,
+    original_user_query: str,
+    gpt_config: dict = None # Opcional, para configurações como modelo, temperatura
+) -> str:
+    """
+    Chama o assistente Juiz (configurado com JUDGE_INSTRUCTIONS_CARREIRA)
+    para revisar a linha do tempo da progressão (ou erro do Executor) e
+    explicá-la de forma clara para o usuário em português.
 
+    Args:
+        client: Instância do cliente OpenAI.
+        progression_timeline_json_str: A string JSON retornada pelo Executor,
+                                       contendo a linha do tempo da progressão ou um erro.
+        original_user_query: A consulta original do usuário para dar contexto ao Juiz.
+        gpt_config: Dicionário opcional com configurações para a chamada do LLM.
 
-def Judge_statement(Known_condtions,condition_from_thinker):
-    '''
-    ask GPT to Judge the thoughts from the thinker
-    Input:
-    Known_condtions, Condition from the thinker (List, Str)
-    Output:
-    True/False (Str)
-    '''
-    messages = []
-    numbered_conditions = "\n".join(f"{i + 1}. {condition}" for i, condition in enumerate(Known_condtions))
-    message = {
-        "role": "user",
-        "content": Judge_T_F.format(Known_condtions = numbered_conditions,condition_from_thinker = condition_from_thinker)
-    }
-    messages.append(message)
-    message = {
-        "role": "user",
-        "content": T_or_F_prompt
-    }     
-    messages.append(message)
-    T_or_F = generate_from_judge(messages, max_tokens = 16, model="gpt-4-1106-preview", temperature=0.7, n=1)
-    return T_or_F
+    Returns:
+        Uma string contendo a explicação formatada para o usuário.
+    """
+    if gpt_config is None:
+        gpt_config = {}
 
+    # O prompt para o Juiz deve incluir a saída do Executor e a consulta original.
+    thread_prompts = [
+        {
+            "role": "user",
+            "content": (
+                f"A linha do tempo de progressão de carreira (ou mensagem de erro) retornada pelo Executor é:\n"
+                f"```json\n{progression_timeline_json_str}\n```\n\n"
+                f"Sua tarefa é revisar esta informação e explicar o resultado de forma clara, "
+                f"concisa e amigável para o usuário em português brasileiro.\n"
+                f"Se o JSON indicar um erro no cálculo ou um problema do Executor, explique isso ao usuário de forma compreensível.\n"
+                f"A consulta original do usuário foi: '{original_user_query}'.\n"
+                f"Responda APENAS com o texto da explicação final."
+            )
+        }
+    ]
 
-def Judge_answer(Known_condtions,objectives):
-    '''
-    Ask GPT to Judge if we already got the answer
-    Input:
-    Known_condtions, objectives (List, List)
-    Output:
-    False / True ,answer (Str)
-    '''
-    messages = []
-    numbered_conditions = "\n".join(f"{i + 1}. {condition}" for i, condition in enumerate(Known_condtions))
-    numbered_Objective = "\n".join(f"{i + 1}. {objective}" for i, objective in enumerate(objectives))
-    message = {
-        "role": "user",
-        "content": Judge_if_got_Answer.format(Known_condtions = numbered_conditions, 
-                                              Objective = numbered_Objective)
-    }
-    messages.append(message)
-    message = {
-        "role": "user",
-        "content": If_got_Answer_T_F
-    }     
-    messages.append(message)
-    T_or_F = generate_from_judge(messages, 
-                                 max_tokens = 4, 
-                                 model="gpt-4-1106-preview", 
-                                 temperature=0.7, n=1)
-    return T_or_F
+    # Certifique-se que `create_and_run_assistant` aceita `client` como primeiro argumento
+    # e que `gpt_config` é desempacotado corretamente como **kwargs.
+    explanation_text = create_and_run_assistant(
+        client=client,
+        assistant_name="JuizCarreira", # Nome descritivo para o assistente
+        assistant_instructions=JUDGE_INSTRUCTIONS_CARREIRA,
+        thread_prompts=thread_prompts,
+        **gpt_config  # Passa configurações como model, temperature, etc.
+    )
 
+    return explanation_text
+
+# As funções Judge_condition, Judge_statement, Judge_answer
+# do seu judge.py original não são necessárias para este fluxo simplificado
+# de progressão de carreira. Você pode comentá-las ou removê-las.
