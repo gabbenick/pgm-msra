@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from datetime import datetime
 from dotenv import load_dotenv # Para carregar variáveis de ambiente (API Key)
 from openai import OpenAI
@@ -10,20 +11,41 @@ from macm.executor import calculate_career_progression # Ou o nome com typo se v
 from macm.judge import explain_career_progression_results
 
 # Função auxiliar para limpar strings JSON (pode ir para utils se preferir)
-def clean_json_string(json_str: str) -> str:
-    """Tenta limpar uma string JSON que pode estar encapsulada em markdown."""
-    s = json_str.strip()
-    if s.startswith("```json"):
-        s = s[7:] # remove ```json
-        if s.endswith("```"):
-            s = s[:-3] # remove ```
-        return s.strip()
-    if s.startswith("```"): # Caso mais simples de apenas ```
-        s = s[3:]
-        if s.endswith("```"):
-            s = s[:-3]
-        return s.strip()
-    return s # Retorna original se não encontrar markdown
+def clean_json_string(text_with_json: str) -> str:
+    """
+    Tenta extrair uma string JSON de um texto que pode conter JSON encapsulado
+    em markdown ou com texto antes/depois.
+    """
+    text_with_json = text_with_json.strip()
+
+    # Tenta encontrar JSON dentro de ```json ... ```
+    match_markdown = re.search(r"```json\s*(\{.*?\})\s*```", text_with_json, re.DOTALL)
+    if match_markdown:
+        return match_markdown.group(1).strip()
+
+    # Tenta encontrar JSON dentro de ``` ... ```
+    match_generic_markdown = re.search(r"```\s*(\{.*?\})\s*```", text_with_json, re.DOTALL)
+    if match_generic_markdown:
+        return match_generic_markdown.group(1).strip()
+        
+    # Tenta encontrar o primeiro '{' até o último '}' que possa formar um JSON
+    # Isso é mais arriscado, mas pode funcionar se o LLM apenas adicionar texto antes/depois
+    # e não outros '{' ou '}' desbalanceados.
+    try:
+        first_brace = text_with_json.find('{')
+        last_brace = text_with_json.rfind('}')
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            potential_json = text_with_json[first_brace : last_brace+1]
+            # Tenta validar se é realmente um JSON
+            json.loads(potential_json) # Se não levantar exceção, é provável que seja JSON
+            return potential_json.strip()
+    except json.JSONDecodeError:
+        pass # Não era um JSON válido, continua
+
+    # Se nada funcionou, retorna a string original (ou uma string vazia/erro)
+    # Retornar a string original pode levar ao mesmo erro de parseamento,
+    # mas dá a chance de a lógica de erro no main.py lidar com isso.
+    return text_with_json # Ou talvez: raise ValueError("Não foi possível extrair JSON da string.")
 
 
 def run_career_progression_pipeline(user_query_pt: str):

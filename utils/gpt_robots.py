@@ -111,15 +111,3 @@ def create_and_run_assistant(
             except Exception as e_del_thr:
                 print(f"Erro ao deletar thread {thread.id} para '{assistant_name}': {e_del_thr}")
 
-# REMOVA as funções generate_from_thinker, generate_from_judge, generate_from_excutor daqui.
-# Elas serão implementadas nos arquivos macm/thinker.py, macm/judge.py, macm/executor.py,
-# e chamarão a função create_and_run_assistant acima.
-
-# def generate_from_thinker(prompts, **kwargs): # <--- REMOVA
-#     return create_and_run_assistant("Thinker", prompts, **kwargs)
-
-# def generate_from_judge(prompts, **kwargs): # <--- REMOVA
-#     return create_and_run_assistant("Judge", prompts, **kwargs)
-
-# def generate_from_excutor(prompts, **kwargs): # <--- REMOVA
-#     return create_and_run_assistant("Executor", prompts, **kwargs)
