@@ -1,10 +1,8 @@
 import json # Para o json.dumps, caso necessário internamente, mas principalmente para o main.py
-from openai import OpenAI # Para type hinting
-from utils.gpt_robots import create_and_run_assistant # Certifique-se que este é o caminho correto
+from openai import OpenAI
+from utils.gpt_robots import create_and_run_assistant
 from prompt.prompts import EXECUTOR_INSTRUCTIONS_CARREIRA, REGULAMENTO_PCC_GERAL_PT # Importa as instruções e o regulamento
 
-# Mantendo seu typo na função se você o utiliza consistentemente.
-# Caso contrário, corrija para generate_from_executor.
 def calculate_career_progression(
     client: OpenAI, # Adicionando o client como argumento
     extracted_server_data: dict, # Espera-se um dict Python aqui (JSON parseado do Pensador)
@@ -52,10 +50,10 @@ def calculate_career_progression(
     # Recomenda-se um modelo mais capaz para a tarefa complexa do Executor.
     # Se 'model' não estiver em gpt_config, o default de create_and_run_assistant será usado.
     # É melhor definir explicitamente aqui ou no main.py ao chamar.
-    final_model_config = {"model": "gpt-4-turbo-preview"} # Sugestão
+    final_model_config = {"model": "gpt-4-turbo-preview"}
     if gpt_config and "model" in gpt_config:
-        final_model_config["model"] = gpt_config["model"] # Permite override
-    # Adiciona outras configs de gpt_config se existirem
+        final_model_config["model"] = gpt_config["model"]
+        
     for key, value in gpt_config.items():
         if key != "model":
             final_model_config[key] = value
@@ -65,15 +63,10 @@ def calculate_career_progression(
     # e que `final_model_config` é desempacotado corretamente como **kwargs.
     progression_json_str = create_and_run_assistant(
         client=client,
-        assistant_name="ExecutorCarreira", # Nome descritivo
+        assistant_name="ExecutorCarreira",
         assistant_instructions=EXECUTOR_INSTRUCTIONS_CARREIRA,
         thread_prompts=thread_prompts,
         **final_model_config # Passa configurações como model, temperature, etc.
     )
 
     return progression_json_str
-
-# As funções Execute_steps e Find_Answer do seu executor.py original
-# não são diretamente aplicáveis ao nosso fluxo de progressão de carreira,
-# onde o "plano" ou "passos" estão embutidos no REGULAMENTO.
-# Você pode comentá-las ou removê-las.

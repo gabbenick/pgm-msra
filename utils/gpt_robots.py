@@ -1,18 +1,12 @@
 import time
-from openai import OpenAI # Apenas para type hinting, o client será passado
-
-# REMOVA a inicialização global do client daqui:
-# client = OpenAI(
-#     api_key="sk-proj-...", # <--- REMOVA ISTO
-#     default_headers={"OpenAI-Beta": "assistants=v2"}
-# )
+from openai import OpenAI
 
 def create_and_run_assistant(
-    client: OpenAI, # O client agora é um argumento
+    client: OpenAI, 
     assistant_name: str,
-    assistant_instructions: str, # As instruções específicas virão como argumento
-    thread_prompts: list, # Lista de dicts: [{"role": "user", "content": "..."}]
-    model: str = "gpt-4-1106-preview", # Default model, pode ser sobrescrito
+    assistant_instructions: str,
+    thread_prompts: list,
+    model: str = "gpt-4-1106-preview",
     timeout_seconds: int = 180,
     poll_interval_seconds: int = 2
 ) -> str:
@@ -38,11 +32,9 @@ def create_and_run_assistant(
     start_time = time.time()
 
     try:
-        # As role_instructions genéricas não são mais necessárias aqui.
-        # As instruções específicas são passadas via assistant_instructions.
         assistant = client.beta.assistants.create(
             model=model,
-            instructions=assistant_instructions, # Usa as instruções passadas
+            instructions=assistant_instructions,
             name=assistant_name,
             tools=[{"type": "code_interpreter"}],
         )
@@ -76,8 +68,6 @@ def create_and_run_assistant(
             if run.status == "requires_action":
                 tool_calls = run.required_action.submit_tool_outputs.tool_calls if run.required_action and run.required_action.type == "submit_tool_outputs" else None
                 print(f"Run {run.id} para '{assistant_name}' requer ação. Tipo: {run.required_action.type if run.required_action else 'N/A'}. Tool calls: {tool_calls}")
-                # Para este projeto, não esperamos ter que submeter tool_outputs manualmente.
-                # Se o run ficar preso aqui, é um problema.
 
         if run.status == "completed":
             messages = client.beta.threads.messages.list(thread_id=thread.id, order="desc")

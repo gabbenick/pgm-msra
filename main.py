@@ -2,15 +2,15 @@ import os
 import json
 import re
 from datetime import datetime
-from dotenv import load_dotenv # Para carregar variáveis de ambiente (API Key)
+from dotenv import load_dotenv
 from openai import OpenAI
 
-# Importe as funções refatoradas dos seus módulos MACM
+# Funções refatoradas dos seus módulos MACM
 from macm.thinker import extract_career_progression_data
-from macm.executor import calculate_career_progression # Ou o nome com typo se você manteve
+from macm.executor import calculate_career_progression
 from macm.judge import explain_career_progression_results
 
-# Função auxiliar para limpar strings JSON (pode ir para utils se preferir)
+# Função auxiliar para limpar strings JSON
 def clean_json_string(text_with_json: str) -> str:
     """
     Tenta extrair uma string JSON de um texto que pode conter JSON encapsulado
@@ -18,19 +18,14 @@ def clean_json_string(text_with_json: str) -> str:
     """
     text_with_json = text_with_json.strip()
 
-    # Tenta encontrar JSON dentro de ```json ... ```
     match_markdown = re.search(r"```json\s*(\{.*?\})\s*```", text_with_json, re.DOTALL)
     if match_markdown:
         return match_markdown.group(1).strip()
 
-    # Tenta encontrar JSON dentro de ``` ... ```
     match_generic_markdown = re.search(r"```\s*(\{.*?\})\s*```", text_with_json, re.DOTALL)
     if match_generic_markdown:
         return match_generic_markdown.group(1).strip()
         
-    # Tenta encontrar o primeiro '{' até o último '}' que possa formar um JSON
-    # Isso é mais arriscado, mas pode funcionar se o LLM apenas adicionar texto antes/depois
-    # e não outros '{' ou '}' desbalanceados.
     try:
         first_brace = text_with_json.find('{')
         last_brace = text_with_json.rfind('}')
@@ -76,11 +71,10 @@ def run_career_progression_pipeline(user_query_pt: str):
 
     print(f"\n--- Consulta do Usuário (PT) ---\n{user_query_pt}\n")
 
-    # --- Fase 1: Pensador (Thinker) ---
     print("--- Fase 1: Pensador ---")
     # Configurações para o LLM do Pensador (opcional, pode usar defaults de create_and_run_assistant)
-    gpt_config_thinker = {"model": "gpt-3.5-turbo-1106"} # Modelo mais rápido e barato para extração
-    
+    gpt_config_thinker = {"model": "gpt-3.5-turbo-1106"}
+
     extracted_data_json_str = extract_career_progression_data(
         client=client,
         user_query_content=user_query_pt,
@@ -97,7 +91,7 @@ def run_career_progression_pipeline(user_query_pt: str):
         if "erro" in extracted_data and extracted_data["erro"]:
             error_message = f"Erro na análise da sua solicitação: {extracted_data['erro']}. Por favor, tente reformular sua pergunta."
             print(error_message)
-            # Poderia chamar o Juiz para formatar este erro também, se desejado
+            
             return error_message # Retorna o erro diretamente
     except json.JSONDecodeError as e:
         error_message = f"Houve um problema técnico ao processar sua solicitação (formato inválido da análise inicial). Detalhe: {e}. String recebida: '{extracted_data_json_str}'"
@@ -111,23 +105,21 @@ def run_career_progression_pipeline(user_query_pt: str):
     if not extracted_data: # Se extracted_data for None devido a um erro não capturado acima
         return "Falha na extração de dados pelo Pensador."
 
-    # --- Fase 2: Executor ---
     print("--- Fase 2: Executor ---")
     # Configurações para o LLM do Executor (modelo mais capaz é crucial aqui)
-    gpt_config_executor = {"model": "gpt-4-turbo-preview"} # Fortemente recomendado
+    gpt_config_executor = {"model": "gpt-4-turbo-preview"}
     
     progression_timeline_json_str = calculate_career_progression(
         client=client,
-        extracted_server_data=extracted_data, # Passa o dict Python parseado
+        extracted_server_data=extracted_data,
         gpt_config=gpt_config_executor
     )
     print(f"Executor retornou (string bruta):\n{progression_timeline_json_str}\n")
 
     progression_timeline_json_str = clean_json_string(progression_timeline_json_str)
     print(f"Executor retornou (após limpeza):\n{progression_timeline_json_str}\n")
-    # O Juiz receberá esta string e tentará interpretá-la (seja JSON válido ou texto de erro)
+    # O Juiz receberá esta string e tentará interpretá-la
 
-    # --- Fase 3: Juiz (Judge) ---
     print("--- Fase 3: Juiz ---")
     gpt_config_judge = {"model": "gpt-4-turbo-preview"} # Pode ser gpt-3.5 para economizar, mas gpt-4 pode dar explicações melhores
     
@@ -145,7 +137,7 @@ def run_career_progression_pipeline(user_query_pt: str):
 
 if __name__ == "__main__":
     # Exemplo de prompt do usuário para progressão de carreira
-    # (Baseado na imagem que você compartilhou anteriormente, mas usando a lógica de regras que definimos)
+    
     user_prompt_carreira = """
     Fui admitido em 20 de agosto de 2008, com a referência inicial NE41A01.
     Ao longo da minha carreira, obtive os seguintes títulos e requeri as progressões nas datas indicadas:
