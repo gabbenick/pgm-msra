@@ -6,9 +6,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 # Funções refatoradas dos seus módulos MACM
-from macm.thinker import extract_career_progression_data
-from macm.executor import calculate_career_progression
-from macm.judge import explain_career_progression_results
+from msra.thinker import extract_career_progression_data
+from msra.executor import calculate_career_progression
+from msra.judge import explain_career_progression_results
 
 # Função auxiliar para limpar strings JSON
 def clean_json_string(text_with_json: str) -> str:
