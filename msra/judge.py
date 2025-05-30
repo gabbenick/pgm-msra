@@ -1,60 +1,44 @@
-from openai import OpenAI # Para type hinting, se você usa
-from utils.gpt_robots import create_and_run_assistant # Certifique-se que este é o caminho correto
-from prompt.prompts import JUDGE_INSTRUCTIONS_CARREIRA # Importa a instrução correta
+from openai import OpenAI
+from utils.gpt_robots import create_and_run_assistant
+# Certifique-se de que JUDGE_INSTRUCTIONS_CARREIRA está definida em prompt.prompts
+# e que é a versão que espera o contexto consolidado.
+from prompt.prompts import JUDGE_INSTRUCTIONS_CARREIRA
 
-# A gpt_config pode ser útil para passar o modelo, temperatura, etc.
 def explain_career_progression_results(
-    client: OpenAI, # Adicionando o client como argumento
-    progression_timeline_json_str: str,
-    original_user_query: str,
-    gpt_config: dict = None # Opcional, para configurações como modelo, temperatura
+    client: OpenAI,
+    original_user_query: str, # A consulta original para dar contexto ao LLM
+    contexto_adicional_calculado: str, # <<< MUDANÇA AQUI no nome do parâmetro
+    gpt_config: dict = None
 ) -> str:
     """
-    Chama o assistente Juiz (configurado com JUDGE_INSTRUCTIONS_CARREIRA)
-    para revisar a linha do tempo da progressão (ou erro do Executor) e
-    explicá-la de forma clara para o usuário em português.
-
-    Args:
-        client: Instância do cliente OpenAI.
-        progression_timeline_json_str: A string JSON retornada pelo Executor,
-                                       contendo a linha do tempo da progressão ou um erro.
-        original_user_query: A consulta original do usuário para dar contexto ao Juiz.
-        gpt_config: Dicionário opcional com configurações para a chamada do LLM.
-
-    Returns:
-        Uma string contendo a explicação formatada para o usuário.
+    Chama o assistente Juiz para analisar a progressão, salário (ou erros)
+    e fornecer uma explicação final amigável ao usuário.
     """
     if gpt_config is None:
         gpt_config = {}
 
-    # O prompt para o Juiz deve incluir a saída do Executor e a consulta original.
+    # O prompt para o Juiz agora usa o contexto_adicional_calculado
     thread_prompts = [
         {
             "role": "user",
             "content": (
-                f"A linha do tempo de progressão de carreira (ou mensagem de erro) retornada pelo Executor é:\n"
-                f"```json\n{progression_timeline_json_str}\n```\n\n"
-                f"Sua tarefa é revisar esta informação e explicar o resultado de forma clara, "
-                f"concisa e amigável para o usuário em português brasileiro.\n"
-                f"Se o JSON indicar um erro no cálculo ou um problema do Executor, explique isso ao usuário de forma compreensível.\n"
-                f"A consulta original do usuário foi: '{original_user_query}'.\n"
-                f"Responda APENAS com o texto da explicação final."
+                f"Consulta original do usuário para seu conhecimento e para que você possa contextualizar sua resposta:\n"
+                f"'''{original_user_query}'''\n\n"
+                f"Abaixo estão as informações consolidadas sobre a progressão de carreira e o possível salário do servidor. "
+                f"Sua tarefa é analisar tudo isso e gerar uma explicação final clara, concisa e amigável para o usuário em português brasileiro, "
+                f"seguindo as instruções detalhadas do seu perfil (JUDGE_INSTRUCTIONS_CARREIRA).\n\n"
+                f"--- INÍCIO DAS INFORMAÇÕES CONSOLIDADAS PARA ANÁLISE ---\n"
+                f"{contexto_adicional_calculado}\n" # <<< USA O NOVO PARÂMETRO AQUI
+                f"--- FIM DAS INFORMAÇÕES CONSOLIDADAS PARA ANÁLISE ---"
             )
         }
     ]
-
-    # Certifique-se que `create_and_run_assistant` aceita `client` como primeiro argumento
-    # e que `gpt_config` é desempacotado corretamente como **kwargs.
+    
     explanation_text = create_and_run_assistant(
         client=client,
-        assistant_name="JuizCarreira", # Nome descritivo para o assistente
-        assistant_instructions=JUDGE_INSTRUCTIONS_CARREIRA,
+        assistant_name="JuizCarreira", 
+        assistant_instructions=JUDGE_INSTRUCTIONS_CARREIRA, # Esta instrução deve estar atualizada
         thread_prompts=thread_prompts,
-        **gpt_config  # Passa configurações como model, temperature, etc.
+        **gpt_config 
     )
-
     return explanation_text
-
-# As funções Judge_condition, Judge_statement, Judge_answer
-# do seu judge.py original não são necessárias para este fluxo simplificado
-# de progressão de carreira. Você pode comentá-las ou removê-las.
