@@ -121,11 +121,9 @@ Instruções Principais:
         *   Atualize `data_simulacao_atual` = `data_fim_probatorio`.
         *   Registre o evento: `{"data": data_simulacao_atual, "referencia": referencia_atual, "evento": "Fim do Estágio Probatório"}`. (A `referencia_atual` não muda neste evento).
 
-    *   **Loop de Simulação Principal** (execute repetidamente enquanto `data_simulacao_atual` < `dados_servidor.data_limite` E os últimos 3 caracteres da `referencia_atual` não forem "D06" - ou o teto específico do plano conforme REGULAMENTO):
+    *   **Loop de Simulação Principal** (execute repetidamente enquanto `data_simulacao_atual` < `dados_servidor.data_limite` E a Classe da `referencia_atual` está em ['A','B','C','D'] E os últimos 3 caracteres da `referencia_atual` não forem "D06"):
         A.  **Determinar Data do Próximo Mérito Teórico (`data_prox_merito_teorica`):**
-            *   A PRIMEIRA progressão por mérito ocorre 2 anos APÓS a `data_fim_probatorio`.
-            *   As DEMAIS progressões por mérito ocorrem 2 anos APÓS a `data_simulacao_atual` (que representa a data do último evento de progressão, seja ele mérito ou título).
-            *   Portanto, `data_prox_merito_teorica` = `data_simulacao_atual` + 2 anos.
+            *   `data_prox_merito_teorica` = `data_simulacao_atual` + 2 anos. (A `data_simulacao_atual` reflete a data do último evento, seja Fim do Probatório, Mérito ou Título. A regra de 2 anos após o probatório para o primeiro mérito e 2 anos após o último evento para os demais é coberta aqui se `data_simulacao_atual` for corretamente mantida.)
 
         B.  **Determinar Próximo Título Aplicável e Sua Data:**
             *   Inicialize `data_proximo_titulo_candidato` como uma data muito no futuro (ou `None`).
@@ -149,8 +147,16 @@ Instruções Principais:
             *   Atualize `data_simulacao_atual` para a data do evento escolhido.
             *   Guarde a `referencia_anterior = referencia_atual`.
             *   Se o evento foi **TÍTULO**:
-                *   Calcule a NOVA Classe e Nível (os 3 últimos caracteres) baseado na regra do `titulo_candidato_escolhido.tipo` do REGULAMENTO e na `referencia_anterior`. **LEMBRE-SE da regra específica para Mestrado/Doutorado se o servidor já estiver na Classe D (permanece no mesmo nível, conforme REGULAMENTO).**
-                *   Forme a nova `referencia_atual` = PREFIXO FIXO + NovaClasseNovoNível (nível com dois dígitos).
+                *   // INÍCIO LÓGICA TÍTULO APLICADO
+                *   Se (`titulo_candidato_escolhido.tipo` == "mestrado" OR `titulo_candidato_escolhido.tipo` == "doutorado") AND (a Classe da `referencia_anterior` é "D"):
+                *       // Regra especial: Mestrado/Doutorado na Classe D não altera a referência.
+                *       // `referencia_atual` permanece igual à `referencia_anterior`.
+                *       // O evento será registrado, mas sem mudança na string da referência.
+                *       print(f"Debug: Aplicando {titulo_candidato_escolhido.tipo} na classe D. Referência {referencia_anterior} permanece {referencia_atual}.") # Exemplo de log para o LLM
+                *   Else (para outros tipos de títulos, ou Mestrado/Doutorado em classes A, B, C):
+                *       Calcule a NOVA Classe e Nível (os 3 últimos caracteres) baseado na regra do `titulo_candidato_escolhido.tipo` do REGULAMENTO e na `referencia_anterior`.
+                *       Forme a nova `referencia_atual` = PREFIXO FIXO + NovaClasseNovoNível (nível com dois dígitos).
+                *   // FIM LÓGICA TÍTULO APLICADO
                 *   Atualize `data_ultima_progressao_titulo` = `data_simulacao_atual`.
                 *   Atualize `tipo_ultimo_titulo_progredido` = `titulo_candidato_escolhido.tipo`.
                 *   Adicione `titulo_candidato_escolhido` a `titulos_processados`.
@@ -159,11 +165,11 @@ Instruções Principais:
                 *   Calcule a NOVA Classe e Nível (os 3 últimos caracteres) baseado na regra de mérito do REGULAMENTO e na `referencia_anterior`.
                 *   Forme a nova `referencia_atual` = PREFIXO FIXO + NovaClasseNovoNível (nível com dois dígitos).
                 *   Registre o evento de mérito.
-            *   Se os últimos 3 caracteres da `referencia_atual` atingiram "D06" (ou o teto específico), prepare para encerrar o loop na próxima iteração.
+            *   Se os últimos 3 caracteres da `referencia_atual` atingiram "D06", prepare para encerrar o loop na próxima iteração.
 
 6.  **Ferramenta `code_interpreter`:** Use OBRIGATORIAMENTE para todos os cálculos de datas (ex: `datetime` e `relativedelta` do Python), comparações, e para ATUALIZAR as variáveis de estado, especialmente para formar a string da nova `referencia_atual` (PREFIXO_FIXO + nova_classe + novo_nível_com_dois_dígitos).
 7.  **Documentação do Evento:** Cada evento na lista de saída deve ter "data", "referencia" (completa, 7 caracteres, nível com 2 dígitos, ex: A01, D06), "evento" (descrição em português).
-8.  **Teto da Carreira:** A progressão por mérito (e qualquer progressão que altere a referência) cessa quando os últimos 3 caracteres da referência forem "D06" (ou o teto definido no REGULAMENTO). Não devem ser registrados eventos de progressão após atingir o teto.
+8.  **Teto da Carreira:** As classes válidas neste PCC são A, B, C, D. A progressão (por mérito ou título que altere a referência) CESSA ABSOLUTAMENTE quando a referência atingir o padrão D06. NÃO CRIE CLASSES E, F, etc. Após D06, não registre mais eventos de progressão que mudem a referência. Você pode registrar um evento "Atingido Teto da Carreira" se desejar, após a última progressão para D06.
 
 Formato da Saída: APENAS a string JSON da linha do tempo ou um JSON de erro.
 ATENÇÃO MÁXIMA: SUA RESPOSTA FINAL DEVE SER A STRING JSON PURA E NADA MAIS. NADA DE TEXTO INTRODUTÓRIO OU EXPLICATIVO ANTES OU DEPOIS DO JSON.
@@ -175,14 +181,20 @@ Seu objetivo é fornecer uma AVALIAÇÃO CONCISA e um RESUMO MÍNIMO.
 Você receberá "INFORMAÇÕES CONSOLIDADAS" contendo a linha do tempo JSON da progressão e o status do salário.
 
 SUA RESPOSTA DEVE SEGUIR ESTRITAMENTE ESTE FORMATO:
+Instruções para sua Resposta:
+1.  **Validação da Progressão:** (...)
+    *   Verifique se o estágio probatório foi aplicado.
+    *   Verifique se as progressões por mérito ocorrem aproximadamente a cada 2 anos.
+    *   Verifique se os títulos parecem ser aplicados em datas plausíveis e se o efeito na referência é consistente com o tipo de título E com as classes válidas (A, B, C, D) do regulamento.
+    *   Verifique se o teto da carreira (D06) foi respeitado e se não há progressões para classes inexistentes (como E, F).
 
-1.  **AVALIAÇÃO:** Comece com UMA das seguintes frases:
+2.  **AVALIAÇÃO:** Comece com UMA das seguintes frases:
     *   "Avaliação da Progressão: SIMULAÇÃO PARECE CORRETA."
     *   "Avaliação da Progressão: POSSÍVEL INCONSISTÊNCIA DETECTADA - [descreva a inconsistência em UMA frase curta, ex: 'data da primeira progressão por mérito antecipada']."
     *   "Avaliação da Progressão: ERRO NO CÁLCULO DA PROGRESSÃO PELO EXECUTOR - [resuma o erro do executor em UMA frase curta]."
     *   "Avaliação da Progressão: DADOS DE PROGRESSÃO INVÁLIDOS OU AUSENTES."
 
-2.  **RESUMO (APENAS SE A SIMULAÇÃO PARECE CORRETA):**
+3.  **RESUMO (APENAS SE A SIMULAÇÃO PARECE CORRETA):**
     *   Linha 1: "Resultado Principal: Atingiu [Última Referência] em [Data da Última Referência]."
     *   Linha 2: "Salário Base Correspondente: R$ [Valor do Salário]." (Ou "Salário não encontrado para esta referência/cargo.")
 

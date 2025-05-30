@@ -217,7 +217,7 @@ def run_career_progression_pipeline(user_query_pt: str):
 
     # --- Fase 2: Executor ---
     print("--- Fase 2: Executor ---")
-    gpt_config_executor = {"model": "gpt-4-0125-preview"} # ou gpt-4-turbo-preview
+    gpt_config_executor = {"model": "gpt-4-0125-preview", "temperature": 0.0} # ou gpt-4-turbo-preview
     progression_timeline_json_str_bruta = calculate_career_progression(
         client, extracted_data, gpt_config=gpt_config_executor
     )

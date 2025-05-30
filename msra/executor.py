@@ -3,70 +3,59 @@ from openai import OpenAI
 from utils.gpt_robots import create_and_run_assistant
 from prompt.prompts import EXECUTOR_INSTRUCTIONS_CARREIRA, REGULAMENTO_PCC_GERAL_PT # Importa as instruções e o regulamento
 
+# macm/executor.py
+# ... (imports) ...
+from prompt.prompts import EXECUTOR_INSTRUCTIONS_CARREIRA, REGULAMENTO_PCC_GERAL_PT # Adicione REGULAMENTO aqui se ele não for mais passado como string
+
 def calculate_career_progression(
-    client: OpenAI, # Adicionando o client como argumento
-    extracted_server_data: dict, # Espera-se um dict Python aqui (JSON parseado do Pensador)
-    gpt_config: dict = None # Opcional, para configurações como modelo, temperatura
+    client: OpenAI,
+    extracted_server_data: dict,
+    gpt_config: dict = None 
 ) -> str:
-    """
-    Chama o assistente Executor (configurado com EXECUTOR_INSTRUCTIONS_CARREIRA)
-    para calcular/simular a progressão de carreira do servidor.
-
-    O Executor receberá o REGULAMENTO_PCC_GERAL_PT e os dados do servidor,
-    e deve usar o code_interpreter para realizar a simulação.
-
-    Args:
-        client: Instância do cliente OpenAI.
-        extracted_server_data: Um dicionário Python contendo os dados do servidor
-                               extraídos pelo Pensador (data_admissao, ref_inicial,
-                               titulos_requeridos, data_limite).
-        gpt_config: Dicionário opcional com configurações para a chamada do LLM.
-
-    Returns:
-        Uma string JSON contendo a lista de eventos da progressão
-        ou uma string JSON de erro (ex: {"erro_calculo": "mensagem"}).
-    """
-    if gpt_config is None:
+    if gpt_config is None: 
         gpt_config = {}
 
-    # O prompt para o Executor deve incluir o REGULAMENTO e os dados do servidor.
-    # EXECUTOR_INSTRUCTIONS_CARREIRA já detalha como o LLM deve usar esses dois inputs.
     thread_prompts = [
         {
             "role": "user",
             "content": (
-                f"Aqui está o REGULAMENTO do PCC que você deve usar para o cálculo:\n"
+                f"REGULAMENTO GERAL DE PROGRESSÃO DE CARREIRA APLICÁVEL:\n"
                 f"--- INÍCIO DO REGULAMENTO ---\n{REGULAMENTO_PCC_GERAL_PT}\n--- FIM DO REGULAMENTO ---\n\n"
-                f"E aqui estão os DADOS DO SERVIDOR extraídos pelo Pensador (fornecidos como um objeto JSON dentro deste prompt):\n"
+                f"DADOS DO SERVIDOR (incluindo referência inicial específica do cargo e tipo de cargo):\n"
                 f"```json\n{json.dumps(extracted_server_data)}\n```\n\n"
-                f"Sua tarefa é seguir as instruções detalhadas no seu perfil de Executor "
-                f"(EXECUTOR_INSTRUCTIONS_CARREIRA) para calcular a progressão de carreira. "
-                f"Lembre-se de usar o `code_interpreter` para cálculos de data e para manter o estado da progressão. "
-                f"Retorne APENAS a string JSON da linha do tempo ou um JSON com \"erro_calculo\" se falhar."
+                f"Sua tarefa é, usando o `code_interpreter` e seguindo o REGULAMENTO GERAL, simular a progressão da REFERÊNCIA do servidor a partir da `ref_inicial` fornecida nos dados. "
+                f"A parte inicial da `ref_inicial` (os 4 primeiros caracteres) permanecerá constante. "
+                f"Concentre-se em progredir a Classe e o Nível (últimos 3 caracteres, com nível de dois dígitos). "
+                f"As instruções detalhadas de como proceder estão no seu perfil (EXECUTOR_INSTRUCTIONS_CARREIRA). "
+                f"Retorne APENAS a string JSON da linha do tempo da progressão da REFERÊNCIA ou um JSON com \"erro_calculo\" se falhar."
             )
         }
     ]
 
-    # Recomenda-se um modelo mais capaz para a tarefa complexa do Executor.
-    # Se 'model' não estiver em gpt_config, o default de create_and_run_assistant será usado.
-    # É melhor definir explicitamente aqui ou no main.py ao chamar.
-    final_model_config = {"model": "gpt-4-turbo-preview"}
-    if gpt_config and "model" in gpt_config:
-        final_model_config["model"] = gpt_config["model"]
-        
-    for key, value in gpt_config.items():
-        if key != "model":
-            final_model_config[key] = value
+    # Extrai model e temperature do gpt_config, com defaults apropriados para o Executor
+    model_to_use = gpt_config.get("model", "gpt-4-0125-preview") 
+    temperature_to_use = gpt_config.get("temperature", 0.0)  # Default 0.0 para Executor
+    
+    # Garante que a temperatura seja float
+    if isinstance(temperature_to_use, str): 
+        try: 
+            temperature_to_use = float(temperature_to_use)
+        except ValueError:
+            print(f"AVISO EXECUTOR: Temperatura inválida '{temperature_to_use}', usando default 0.0")
+            temperature_to_use = 0.0
+    elif not isinstance(temperature_to_use, float) and not isinstance(temperature_to_use, int):
+        print(f"AVISO EXECUTOR: Tipo de temperatura inesperado '{type(temperature_to_use)}', usando default 0.0")
+        temperature_to_use = 0.0
 
 
-    # Certifique-se que `create_and_run_assistant` aceita `client` como primeiro argumento
-    # e que `final_model_config` é desempacotado corretamente como **kwargs.
     progression_json_str = create_and_run_assistant(
         client=client,
         assistant_name="ExecutorCarreira",
-        assistant_instructions=EXECUTOR_INSTRUCTIONS_CARREIRA,
+        assistant_instructions=EXECUTOR_INSTRUCTIONS_CARREIRA, # Esta deve ser a versão detalhada
         thread_prompts=thread_prompts,
-        **final_model_config # Passa configurações como model, temperature, etc.
+        model=model_to_use,
+        temperature=temperature_to_use 
+        # Se create_and_run_assistant tiver outros parâmetros como timeout, poll_interval,
+        # eles usariam seus defaults ou você os pegaria de gpt_config também.
     )
-
     return progression_json_str

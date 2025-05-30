@@ -1,12 +1,14 @@
+# utils/gpt_robots.py
 import time
 from openai import OpenAI
 
 def create_and_run_assistant(
-    client: OpenAI, 
+    client: OpenAI,
     assistant_name: str,
     assistant_instructions: str,
     thread_prompts: list,
-    model: str = "gpt-4-1106-preview",
+    model: str = "gpt-4-1106-preview", # Modelo default para o assistente E para o run
+    temperature: float = 0.7,         # <<< NOVO PARÂMETRO COM DEFAULT
     timeout_seconds: int = 180,
     poll_interval_seconds: int = 2
 ) -> str:
@@ -19,7 +21,8 @@ def create_and_run_assistant(
         assistant_name: Nome para o assistente (para logging/debug).
         assistant_instructions: As instruções específicas para o assistente.
         thread_prompts: Uma lista de prompts a serem adicionados à thread.
-        model: O modelo a ser usado para o assistente.
+        model: O modelo a ser usado para o assistente E para o run.
+        temperature: A temperatura a ser usada para o run. <<< NOVO
         timeout_seconds: Tempo máximo para aguardar a conclusão do run.
         poll_interval_seconds: Intervalo para checar o status do run.
 
@@ -33,27 +36,31 @@ def create_and_run_assistant(
 
     try:
         assistant = client.beta.assistants.create(
-            model=model,
-            instructions=assistant_instructions,
             name=assistant_name,
+            instructions=assistant_instructions,
             tools=[{"type": "code_interpreter"}],
+            model=model # Modelo para o assistente
         )
 
         thread = client.beta.threads.create()
 
-        for prompt_item in thread_prompts: # Renomeado para prompt_item
+        for prompt_item in thread_prompts:
             client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role=prompt_item.get("role", "user"),
                 content=prompt_item.get("content", ""),
             )
 
+        # Cria o run passando a temperatura
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=assistant.id,
+            model=model, # Pode sobrescrever o modelo do assistente para este run específico
+            temperature=temperature # <<< USA O PARÂMETRO DE TEMPERATURA AQUI
         )
         run_id = run.id
 
+        # ... (resto do loop while e tratamento de status como você já tem - está ótimo) ...
         while run.status in ["queued", "in_progress", "requires_action"]:
             if time.time() - start_time > timeout_seconds:
                 try:
@@ -94,10 +101,9 @@ def create_and_run_assistant(
             try:
                 client.beta.assistants.delete(assistant.id)
             except Exception as e_del_ass:
-                print(f"Erro ao deletar assistente {assistant.id} ('{assistant_name}'): {e_del_ass}")
+                print(f"Erro ao deletar assistente {assistant.id if assistant else 'N/A'} ('{assistant_name}'): {e_del_ass}")
         if thread:
             try:
                 client.beta.threads.delete(thread.id)
             except Exception as e_del_thr:
-                print(f"Erro ao deletar thread {thread.id} para '{assistant_name}': {e_del_thr}")
-
+                print(f"Erro ao deletar thread {thread.id if thread else 'N/A'} para '{assistant_name}': {e_del_thr}")
