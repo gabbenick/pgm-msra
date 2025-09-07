@@ -32,7 +32,7 @@ O PGM-MSRA utiliza uma arquitetura de agentes especializados:
 
 1.  **Clone o repositório:**
     ```bash
-    git clone [URL_DO_SEU_REPOSITORIO]
+    git clone https://github.com/gabbenick/pgm-msra
     cd pgm-msra 
     ```
 
